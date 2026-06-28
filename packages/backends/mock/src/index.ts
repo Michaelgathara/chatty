@@ -1,4 +1,10 @@
-import { BackendAdapter, BackendResponse, BackendSendInput } from "../../../core/src";
+import {
+  BackendAdapter,
+  BackendEnsureSessionInput,
+  BackendEnsureSessionResult,
+  BackendSendMessageInput,
+  BackendSendMessageResult,
+} from "../../../core/src";
 
 export class MockBackendAdapter implements BackendAdapter {
   readonly kind = "mock" as const;
@@ -7,7 +13,21 @@ export class MockBackendAdapter implements BackendAdapter {
     return "Local stub backend for proving routing, session isolation, and persistence.";
   }
 
-  async send(input: BackendSendInput): Promise<BackendResponse> {
+  async ensureSession(input: BackendEnsureSessionInput): Promise<BackendEnsureSessionResult> {
+    if (input.session.backendSession) {
+      return {
+        binding: { sessionId: input.session.backendSession.sessionId },
+        state: "existing",
+      };
+    }
+
+    return {
+      binding: { sessionId: `mock:${input.session.id}` },
+      state: "created",
+    };
+  }
+
+  async sendMessage(input: BackendSendMessageInput): Promise<BackendSendMessageResult> {
     const priorUserTurns = input.history.filter((message) => message.role === "user");
     const rememberedTopic = priorUserTurns.at(-1)?.content;
     const evidence = input.routeDecision.evidence
@@ -16,7 +36,8 @@ export class MockBackendAdapter implements BackendAdapter {
       .join(" ");
 
     const replyLines = [
-      `[mock:${input.project.id}] Session ${input.session.id.slice(0, 8)} is active.`,
+      `[mock:${input.project.id}] Hidden session ${input.session.id.slice(0, 8)} is active.`,
+      `Backend session: ${input.backendSession.sessionId}`,
       `Routed because: ${evidence || "no routing evidence was captured."}`,
       rememberedTopic
         ? `This hidden thread already remembered: "${trim(rememberedTopic, 80)}".`
@@ -32,9 +53,6 @@ export class MockBackendAdapter implements BackendAdapter {
     return {
       reply: replyLines.join("\n"),
       summary,
-      backendSession: {
-        sessionId: `mock:${input.session.id}`,
-      },
     };
   }
 }

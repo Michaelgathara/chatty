@@ -109,6 +109,7 @@ function mergeBackendSession(
 
   return {
     sessionId: next.sessionId,
+    sessionFile: next.sessionFile,
     boundAt: now,
     lastUsedAt: now,
   };

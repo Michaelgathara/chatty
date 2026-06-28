@@ -21,6 +21,7 @@ test("SessionRegistry persists sessions and message history", async () => {
     assert.equal(created.created, true);
     await sessions.bindBackendSession(created.session.id, {
       sessionId: "mock:chatty-1",
+      sessionFile: "D:\\Projects\\chatty\\.chatty\\backends\\mock\\session-1.jsonl",
     });
 
     await sessions.recordExchange({
@@ -46,6 +47,7 @@ test("SessionRegistry persists sessions and message history", async () => {
     assert.equal(history[0]?.content, "hello");
     assert.equal(session?.messageCount, 2);
     assert.equal(session?.backendSession?.sessionId, "mock:chatty-1");
+    assert.equal(session?.backendSession?.sessionFile, "D:\\Projects\\chatty\\.chatty\\backends\\mock\\session-1.jsonl");
     assert.ok(session?.backendSession?.boundAt);
   } finally {
     await rm(workspace, { recursive: true, force: true });
@@ -64,6 +66,7 @@ test("SessionRegistry updates the backend binding when a provider session change
     const created = await sessions.ensureSession("chatty", "mock");
     await sessions.bindBackendSession(created.session.id, {
       sessionId: "mock:chatty-1",
+      sessionFile: "D:\\Projects\\chatty\\.chatty\\backends\\mock\\session-1.jsonl",
     });
 
     await sessions.recordExchange({
@@ -74,11 +77,13 @@ test("SessionRegistry updates the backend binding when a provider session change
       summary: "Rebound backend session",
       backendSession: {
         sessionId: "mock:chatty-2",
+        sessionFile: "D:\\Projects\\chatty\\.chatty\\backends\\mock\\session-2.jsonl",
       },
     });
 
     const rebound = (await sessions.listSessions())[0];
     assert.equal(rebound?.backendSession?.sessionId, "mock:chatty-2");
+    assert.equal(rebound?.backendSession?.sessionFile, "D:\\Projects\\chatty\\.chatty\\backends\\mock\\session-2.jsonl");
     assert.equal(rebound?.messageCount, 1);
   } finally {
     await rm(workspace, { recursive: true, force: true });

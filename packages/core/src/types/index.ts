@@ -10,10 +10,12 @@ export interface ChatMessage {
 
 export interface BackendSessionBinding {
   sessionId: string;
+  sessionFile?: string;
 }
 
 export interface BackendSessionRef {
   sessionId: string;
+  sessionFile?: string;
   boundAt: string;
   lastUsedAt: string;
 }

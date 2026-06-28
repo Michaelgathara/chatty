@@ -4,10 +4,10 @@ import readline from "node:readline/promises";
 
 import {
   BackendAdapter,
-  BackendKind,
   ChatMessage,
   createJsonStores,
   MessageRouter,
+  BackendKind,
   ProjectDefinition,
   ProjectRegistry,
   RouteDecision,
@@ -17,7 +17,7 @@ import {
 } from "../../core/src";
 import { MockBackendAdapter } from "../../backends/mock/src";
 import { OpenCodeBackendAdapter } from "../../backends/opencode/src";
-import { PiBackendAdapter } from "../../backends/pi/src";
+import { createPiBackendAdapter } from "../../backends/pi/src";
 import { tokenizeCommand } from "./commands/command-parser";
 
 export class ChattyApp {
@@ -36,7 +36,7 @@ export class ChattyApp {
     this.router = new MessageRouter(this.projects, this.sessions);
     this.backends = {
       mock: new MockBackendAdapter(),
-      pi: new PiBackendAdapter(),
+      pi: createPiBackendAdapter(workspaceRoot),
       opencode: new OpenCodeBackendAdapter(),
     };
   }
@@ -226,9 +226,16 @@ export class ChattyApp {
     }
 
     const backend = this.backends[routed.project.defaultBackend];
-    const response = await backend.send({
+    const ensured = await backend.ensureSession({
       project: routed.project,
       session: routed.session,
+      history: routed.history,
+    });
+    const boundSession = await this.sessions.bindBackendSession(routed.session.id, ensured.binding);
+    const response = await backend.sendMessage({
+      project: routed.project,
+      session: boundSession,
+      backendSession: boundSession.backendSession!,
       history: routed.history,
       message,
       routeDecision: routed.decision,
