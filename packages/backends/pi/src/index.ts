@@ -6,6 +6,7 @@ import {
   BackendSendMessageResult,
 } from "../../../core/src";
 import { PiSessionClient } from "./client";
+import { PiBackendConfig } from "./config";
 import { PiSdkSessionClient } from "./sdk-client";
 
 export class PiBackendAdapter implements BackendAdapter {
@@ -14,7 +15,7 @@ export class PiBackendAdapter implements BackendAdapter {
   constructor(private readonly client: PiSessionClient) {}
 
   describe(): string {
-    return "Planned Pi adapter. Intended to own create/resume/send through Pi's extension or SDK surface.";
+    return "Pi SDK-backed adapter with explicit session lifecycle and persisted provider session bindings.";
   }
 
   async ensureSession(input: BackendEnsureSessionInput): Promise<BackendEnsureSessionResult> {
@@ -48,8 +49,11 @@ export class PiBackendAdapter implements BackendAdapter {
   }
 }
 
-export function createPiBackendAdapter(workspaceRoot: string): PiBackendAdapter {
-  return new PiBackendAdapter(new PiSdkSessionClient(workspaceRoot));
+export function createPiBackendAdapter(
+  workspaceRoot: string,
+  config?: PiBackendConfig,
+): PiBackendAdapter {
+  return new PiBackendAdapter(new PiSdkSessionClient(workspaceRoot, config));
 }
 
 function summarizePiReply(projectId: string, prompt: string, reply: string): string {

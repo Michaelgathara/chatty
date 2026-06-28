@@ -2,10 +2,14 @@ import path from "node:path";
 
 import { BackendSessionBinding } from "../../../core/src";
 import { PiEnsureSessionInput, PiPromptInput, PiPromptResult, PiSessionClient } from "./client";
+import { PiBackendConfig, createDefaultPiBackendConfig } from "./config";
+import { createPiBackendError } from "./errors";
+import { extractPiReply } from "./message-extractor";
 
 interface PiAgentSession {
   readonly sessionId: string;
   readonly sessionFile: string | undefined;
+  readonly messages: unknown[];
   prompt(text: string): Promise<void>;
   subscribe(listener: (event: unknown) => void): () => void;
   dispose(): void;
@@ -18,6 +22,7 @@ interface PiSdkModule {
   };
   createAgentSession(options?: {
     cwd?: string;
+    agentDir?: string;
     sessionManager?: unknown;
   }): Promise<{
     session: PiAgentSession;
@@ -27,37 +32,58 @@ interface PiSdkModule {
 let piSdkPromise: Promise<PiSdkModule> | undefined;
 
 export class PiSdkSessionClient implements PiSessionClient {
-  constructor(private readonly workspaceRoot: string) {}
+  constructor(
+    private readonly workspaceRoot: string,
+    private readonly config: PiBackendConfig = createDefaultPiBackendConfig(workspaceRoot),
+  ) {}
 
   async ensureSession(input: PiEnsureSessionInput): Promise<BackendSessionBinding> {
-    const session = await this.openSession(input);
-
     try {
-      return readBinding(session);
-    } finally {
-      session.dispose();
+      const session = await this.openSession(input);
+
+      try {
+        return readBinding(session);
+      } finally {
+        session.dispose();
+      }
+    } catch (error) {
+      throw createPiBackendError("ensure-session", error);
     }
   }
 
   async prompt(input: PiPromptInput): Promise<PiPromptResult> {
-    const session = await this.openSession(input);
-    let reply = "";
-    const unsubscribe = session.subscribe((event) => {
-      const delta = readAssistantDelta(event);
-      if (delta) {
-        reply += delta;
-      }
-    });
-
     try {
-      await session.prompt(input.message);
-      return {
-        reply: reply.trim(),
-        backendSession: readBinding(session),
-      };
-    } finally {
-      unsubscribe();
-      session.dispose();
+      const session = await this.openSession(input);
+      let reply = "";
+      let agentEndMessages: unknown[] | undefined;
+      const unsubscribe = session.subscribe((event) => {
+        const delta = readAssistantDelta(event);
+        if (delta) {
+          reply += delta;
+        }
+
+        const maybeAgentEndMessages = readAgentEndMessages(event);
+        if (maybeAgentEndMessages) {
+          agentEndMessages = maybeAgentEndMessages;
+        }
+      });
+
+      try {
+        await session.prompt(input.message);
+        return {
+          reply: extractPiReply({
+            streamedText: reply,
+            agentEndMessages,
+            sessionMessages: session.messages,
+          }),
+          backendSession: readBinding(session),
+        };
+      } finally {
+        unsubscribe();
+        session.dispose();
+      }
+    } catch (error) {
+      throw createPiBackendError("prompt", error);
     }
   }
 
@@ -72,11 +98,12 @@ export class PiSdkSessionClient implements PiSessionClient {
       ? pi.SessionManager.open(input.backendSession.sessionFile)
       : pi.SessionManager.create(
           input.projectRoot,
-          path.join(this.workspaceRoot, ".chatty", "backends", "pi", "projects", input.projectId),
+          path.join(this.config.sessionRootDirectory, input.projectId, input.hiddenSessionId),
         );
 
     const options = {
       cwd: input.projectRoot,
+      agentDir: this.config.agentDirectory,
       sessionManager,
     };
 
@@ -86,8 +113,12 @@ export class PiSdkSessionClient implements PiSessionClient {
 }
 
 async function loadPiSdk(): Promise<PiSdkModule> {
-  piSdkPromise ??= import("@earendil-works/pi-coding-agent");
-  return piSdkPromise;
+  try {
+    piSdkPromise ??= import("@earendil-works/pi-coding-agent");
+    return await piSdkPromise;
+  } catch (error) {
+    throw createPiBackendError("load", error);
+  }
 }
 
 function readBinding(session: PiAgentSession): BackendSessionBinding {
@@ -115,4 +146,17 @@ function readAssistantDelta(event: unknown): string {
   }
 
   return maybeUpdate.assistantMessageEvent.delta ?? "";
+}
+
+function readAgentEndMessages(event: unknown): unknown[] | undefined {
+  const maybeEnd = event as {
+    type?: string;
+    messages?: unknown[];
+  };
+
+  if (maybeEnd.type !== "agent_end") {
+    return undefined;
+  }
+
+  return Array.isArray(maybeEnd.messages) ? maybeEnd.messages : undefined;
 }
