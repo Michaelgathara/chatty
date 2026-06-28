@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { ProjectRegistry } from "../src/registries/project-registry";
-import { MessageRouter } from "../src/routing/message-router";
+import { MessageRouter, selectProjectForInput } from "../src/routing/message-router";
 import { SessionRegistry } from "../src/registries/session-registry";
 import { JsonMessageStore, JsonProjectStore, JsonSessionStore } from "../src/storage";
 
@@ -43,4 +43,61 @@ test("MessageRouter creates then resumes a single project's hidden session", asy
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }
+});
+
+test("selectProjectForInput can route across a filtered project list", () => {
+  const selection = selectProjectForInput(
+    [
+      {
+        id: "chatty",
+        name: "chatty",
+        rootPath: "D:\\Projects\\chatty",
+        aliases: ["chatty"],
+        hints: ["router"],
+        defaultBackend: "pi",
+      },
+      {
+        id: "website",
+        name: "website",
+        rootPath: "D:\\Projects\\website",
+        aliases: ["website"],
+        hints: ["landing"],
+        defaultBackend: "pi",
+      },
+    ],
+    { message: "Work on the website landing page hero" },
+  );
+
+  assert.equal(selection.project?.id, "website");
+  assert.ok(selection.confidence > 0.5);
+});
+
+test("selectProjectForInput falls back to the active project for generic follow-ups", () => {
+  const selection = selectProjectForInput(
+    [
+      {
+        id: "chatty",
+        name: "chatty",
+        rootPath: "D:\\Projects\\chatty",
+        aliases: ["chatty"],
+        hints: ["router"],
+        defaultBackend: "pi",
+      },
+      {
+        id: "website",
+        name: "website",
+        rootPath: "D:\\Projects\\website",
+        aliases: ["website"],
+        hints: ["landing"],
+        defaultBackend: "mock",
+      },
+    ],
+    {
+      message: "What backend does the chat router use",
+      lastActiveProjectId: "chatty",
+    },
+  );
+
+  assert.equal(selection.project?.id, "chatty");
+  assert.ok(selection.confidence >= 0.55);
 });

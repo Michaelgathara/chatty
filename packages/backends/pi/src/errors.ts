@@ -39,7 +39,7 @@ function inferHint(detail: string): string {
     normalized.includes("credential") ||
     normalized.includes("auth")
   ) {
-    return "Pi could not authenticate with a provider. Run Pi login or configure the required provider credentials before using the Pi backend.";
+    return "Pi could not authenticate with a provider. Set the required provider API key environment variable before using the Pi backend.";
   }
 
   if (normalized.includes("module") && normalized.includes("not found")) {

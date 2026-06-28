@@ -14,6 +14,20 @@ export class SessionRegistry {
     return [...store].sort((left, right) => right.lastUsedAt.localeCompare(left.lastUsedAt));
   }
 
+  async findByBackendSessionFile(
+    sessionFile: string,
+    backend?: BackendKind,
+  ): Promise<HiddenSessionRecord | undefined> {
+    const store = await this.sessions.readAll();
+    return store.find((session) => {
+      if (backend && session.backend !== backend) {
+        return false;
+      }
+
+      return session.backendSession?.sessionFile === sessionFile;
+    });
+  }
+
   async getMessages(sessionId: string): Promise<ChatMessage[]> {
     return this.messages.getBySessionId(sessionId);
   }

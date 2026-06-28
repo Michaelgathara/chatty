@@ -63,6 +63,13 @@ export interface ProjectScore {
   evidence: RoutingEvidence[];
 }
 
+export interface ProjectSelection {
+  project?: ProjectDefinition;
+  confidence: number;
+  evidence: RoutingEvidence[];
+  candidates: ProjectScore[];
+}
+
 export interface RouteDecision {
   projectId?: string;
   action: "resume" | "create" | "clarify";

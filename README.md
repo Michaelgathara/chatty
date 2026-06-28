@@ -11,7 +11,9 @@
   - backend adapters
 - A runnable terminal app in `packages/tui/src/cli.ts`
 - A local mock backend that proves the routing model without depending on an external AI tool yet
-- Scaffold adapters for `Pi` and `OpenCode`
+- A real `Pi` adapter path with persisted provider session bindings
+- A first Pi-native host extension in `packages/pi-extension/src`
+- A scaffold `OpenCode` adapter
 
 ## Why the mock backend exists
 
@@ -27,7 +29,8 @@ npm run dev
 Inside the app:
 
 - `/projects` shows known projects
-- `/project add <id> <path> [aliases...]` registers another project. Quote ids or paths that contain spaces.
+- `/project add <id> <path> [--backend <kind>] [aliases...]` registers another project. Quote ids or paths that contain spaces.
+- `/project backend <projectId> <mock|pi|opencode>` changes a project's backend
 - `/use <projectId|auto>` pins or unpins routing
 - `/sessions` shows hidden session state
 
@@ -50,6 +53,18 @@ Try this flow:
 - `packages/core/src/utils` - focused core helpers
 - `packages/core/test` - core tests
 - `packages/backends` - backend adapters
+- `packages/pi-extension/src` - Pi-native routing host extension
 - `packages/tui/src` - terminal app
 - `packages/tui/src/commands` - command parsing helpers
 - `packages/tui/test` - TUI tests
+
+## Pi-native direction
+
+The long-term direction is for Pi to own the visible chat window while `chatty` owns routing and project/session selection.
+
+The first Pi-native host path lives in `packages/pi-extension/src`. It is designed to be loaded by Pi as an extension and:
+
+- intercept normal user input
+- route it across Pi-backed `chatty` projects
+- switch Pi sessions when the project changes
+- resend the user message into the selected project session

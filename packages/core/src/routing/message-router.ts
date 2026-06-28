@@ -4,6 +4,7 @@ import { ProjectRegistry } from "../registries/project-registry";
 import { SessionRegistry } from "../registries/session-registry";
 import {
   ProjectDefinition,
+  ProjectSelection,
   ProjectScore,
   ResolvedRoute,
   RouteDecision,
@@ -26,117 +27,141 @@ export class MessageRouter {
       throw new Error("No projects are registered. Add one with /project add <id> <path>.");
     }
 
-    const scores = await Promise.all(
-      projectList.map(async (project) => this.scoreProject(project, input, projectList.length)),
-    );
-
-    const ordered = scores.sort((left, right) => right.score - left.score);
-    const top = ordered[0];
-    const runnerUp = ordered[1];
-
-    if (!top) {
+    const selection = selectProjectForInput(projectList, input);
+    if (!selection.project) {
       return {
         decision: {
           action: "clarify",
-          confidence: 0,
-          evidence: [],
-          candidates: [],
+          confidence: selection.confidence,
+          evidence: selection.evidence,
+          candidates: selection.candidates,
         },
       };
     }
 
-    const topEvidence = [...top.evidence];
-    if (ordered.length === 1 && topEvidence.every((entry) => entry.kind !== "single-project")) {
-      topEvidence.push({ kind: "single-project", value: "Only one project is registered.", weight: 0.6 });
-      top.score = Math.max(top.score, 0.6);
-    }
-
-    const margin = runnerUp ? top.score - runnerUp.score : top.score;
-    if (top.score < MIN_CONFIDENCE || margin < MIN_MARGIN) {
-      return {
-        decision: {
-          action: "clarify",
-          confidence: clamp(top.score),
-          evidence: topEvidence,
-          candidates: ordered.slice(0, 3),
-        },
-      };
-    }
-
-    const project = projectList.find((entry) => entry.id === top.projectId);
-    if (!project) {
-      throw new Error(`Unable to resolve project ${top.projectId}.`);
-    }
-
-    const { session, created } = await this.sessions.ensureSession(project.id, project.defaultBackend);
+    const { session, created } = await this.sessions.ensureSession(selection.project.id, selection.project.defaultBackend);
     const history = await this.sessions.getMessages(session.id);
     const decision: RouteDecision = {
-      projectId: project.id,
+      projectId: selection.project.id,
       action: created ? "create" : "resume",
-      confidence: clamp(top.score),
-      evidence: topEvidence,
-      candidates: ordered.slice(0, 3),
+      confidence: selection.confidence,
+      evidence: selection.evidence,
+      candidates: selection.candidates,
       session,
     };
 
-    return { project, session, history, decision };
+    return { project: selection.project, session, history, decision };
+  }
+}
+
+export function selectProjectForInput(
+  projectList: readonly ProjectDefinition[],
+  input: RouterInput,
+): ProjectSelection {
+  if (projectList.length === 0) {
+    return {
+      confidence: 0,
+      evidence: [],
+      candidates: [],
+    };
   }
 
-  private async scoreProject(
-    project: ProjectDefinition,
-    input: RouterInput,
-    totalProjects: number,
-  ): Promise<ProjectScore> {
-    const haystack = input.message.toLowerCase();
-    const evidence: RoutingEvidence[] = [];
-    let score = 0;
+  const scores = projectList.map((project) => scoreProject(project, input, projectList.length));
+  const ordered = scores.sort((left, right) => right.score - left.score);
+  const top = ordered[0];
+  const runnerUp = ordered[1];
 
-    if (input.overrideProjectId === project.id) {
-      evidence.push({ kind: "override", value: `Manual override to ${project.id}.`, weight: 1 });
-      return { projectId: project.id, score: 1, evidence };
-    }
-
-    if (includesWord(haystack, project.id)) {
-      evidence.push({ kind: "project-id", value: `Matched project id "${project.id}".`, weight: 0.7 });
-      score += 0.7;
-    }
-
-    for (const alias of project.aliases) {
-      if (includesWord(haystack, alias.toLowerCase())) {
-        evidence.push({ kind: "alias", value: `Matched alias "${alias}".`, weight: 0.4 });
-        score += 0.4;
-      }
-    }
-
-    const pathName = path.basename(project.rootPath).toLowerCase();
-    if (pathName && includesWord(haystack, pathName)) {
-      evidence.push({ kind: "path", value: `Matched path hint "${pathName}".`, weight: 0.25 });
-      score += 0.25;
-    }
-
-    for (const hint of project.hints) {
-      if (includesWord(haystack, hint.toLowerCase())) {
-        evidence.push({ kind: "hint", value: `Matched project hint "${hint}".`, weight: 0.2 });
-        score += 0.2;
-      }
-    }
-
-    if (input.lastActiveProjectId === project.id) {
-      evidence.push({ kind: "recency", value: `Last active project was ${project.id}.`, weight: 0.15 });
-      score += 0.15;
-    }
-
-    if (score === 0 && totalProjects === 1) {
-      evidence.push({ kind: "single-project", value: "Only one project is registered.", weight: 0.6 });
-      score = 0.6;
-    }
-
-    if (score === 0) {
-      evidence.push({ kind: "fallback", value: "No explicit match yet.", weight: 0 });
-    }
-
-    return { projectId: project.id, score: clamp(score), evidence };
+  if (!top) {
+    return {
+      confidence: 0,
+      evidence: [],
+      candidates: [],
+    };
   }
+
+  const topEvidence = [...top.evidence];
+  if (ordered.length === 1 && topEvidence.every((entry) => entry.kind !== "single-project")) {
+    topEvidence.push({ kind: "single-project", value: "Only one project is registered.", weight: 0.6 });
+    top.score = Math.max(top.score, 0.6);
+  }
+
+  const margin = runnerUp ? top.score - runnerUp.score : top.score;
+  if (top.score < MIN_CONFIDENCE || margin < MIN_MARGIN) {
+    return {
+      confidence: clamp(top.score),
+      evidence: topEvidence,
+      candidates: ordered.slice(0, 3),
+    };
+  }
+
+  const project = projectList.find((entry) => entry.id === top.projectId);
+  if (!project) {
+    throw new Error(`Unable to resolve project ${top.projectId}.`);
+  }
+
+  return {
+    project,
+    confidence: clamp(top.score),
+    evidence: topEvidence,
+    candidates: ordered.slice(0, 3),
+  };
+}
+
+function scoreProject(
+  project: ProjectDefinition,
+  input: RouterInput,
+  totalProjects: number,
+): ProjectScore {
+  const haystack = input.message.toLowerCase();
+  const evidence: RoutingEvidence[] = [];
+  let score = 0;
+
+  if (input.overrideProjectId === project.id) {
+    evidence.push({ kind: "override", value: `Manual override to ${project.id}.`, weight: 1 });
+    return { projectId: project.id, score: 1, evidence };
+  }
+
+  if (includesWord(haystack, project.id)) {
+    evidence.push({ kind: "project-id", value: `Matched project id "${project.id}".`, weight: 0.7 });
+    score += 0.7;
+  }
+
+  for (const alias of project.aliases) {
+    if (includesWord(haystack, alias.toLowerCase())) {
+      evidence.push({ kind: "alias", value: `Matched alias "${alias}".`, weight: 0.4 });
+      score += 0.4;
+    }
+  }
+
+  const pathName = path.basename(project.rootPath).toLowerCase();
+  if (pathName && includesWord(haystack, pathName)) {
+    evidence.push({ kind: "path", value: `Matched path hint "${pathName}".`, weight: 0.25 });
+    score += 0.25;
+  }
+
+  for (const hint of project.hints) {
+    if (includesWord(haystack, hint.toLowerCase())) {
+      evidence.push({ kind: "hint", value: `Matched project hint "${hint}".`, weight: 0.2 });
+      score += 0.2;
+    }
+  }
+
+  if (input.lastActiveProjectId === project.id) {
+    const weight = score === 0 ? 0.6 : 0.35;
+    evidence.push({ kind: "recency", value: `Last active project was ${project.id}.`, weight });
+    score += weight;
+  }
+
+  if (score === 0 && totalProjects === 1) {
+    evidence.push({ kind: "single-project", value: "Only one project is registered.", weight: 0.6 });
+    score = 0.6;
+  }
+
+  if (score === 0) {
+    evidence.push({ kind: "fallback", value: "No explicit match yet.", weight: 0 });
+  }
+
+  return { projectId: project.id, score: clamp(score), evidence };
 }
 
 function includesWord(haystack: string, rawNeedle: string): boolean {

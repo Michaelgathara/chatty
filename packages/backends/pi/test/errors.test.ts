@@ -14,5 +14,5 @@ test("createPiBackendError explains authentication failures", () => {
   const error = createPiBackendError("ensure-session", new Error("No API key available for provider"));
 
   assert.match(error.message, /authenticate/i);
-  assert.match(error.message, /Pi/i);
+  assert.match(error.message, /api key/i);
 });
