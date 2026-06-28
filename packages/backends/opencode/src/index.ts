@@ -9,7 +9,6 @@ export class OpenCodeBackendAdapter implements BackendAdapter {
 
   async send(input: BackendSendInput): Promise<BackendResponse> {
     return {
-      sessionId: input.session.id,
       reply: [
         `[opencode:${input.project.id}] Adapter scaffold is present but not wired yet.`,
         "Use this path to compare OpenCode's built-in sessions, compaction, and plugin hooks against Pi.",

@@ -30,9 +30,11 @@ export class MockBackendAdapter implements BackendAdapter {
       : `Started ${input.project.id}. Latest topic: ${trim(input.message, 80)}`;
 
     return {
-      sessionId: input.session.id,
       reply: replyLines.join("\n"),
       summary,
+      backendSession: {
+        sessionId: `mock:${input.session.id}`,
+      },
     };
   }
 }

@@ -9,7 +9,6 @@ export class PiBackendAdapter implements BackendAdapter {
 
   async send(input: BackendSendInput): Promise<BackendResponse> {
     return {
-      sessionId: input.session.id,
       reply: [
         `[pi:${input.project.id}] Adapter scaffold is present but not wired yet.`,
         "The control plane can already decide when to create or resume a hidden session.",
