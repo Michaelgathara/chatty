@@ -6,6 +6,7 @@ import {
   BackendAdapter,
   BackendKind,
   ChatMessage,
+  createJsonStores,
   MessageRouter,
   ProjectDefinition,
   ProjectRegistry,
@@ -29,8 +30,9 @@ export class ChattyApp {
   private pinnedProjectId?: string;
 
   constructor(private readonly workspaceRoot = process.cwd()) {
-    this.projects = new ProjectRegistry(workspaceRoot);
-    this.sessions = new SessionRegistry(workspaceRoot);
+    const stores = createJsonStores(workspaceRoot);
+    this.projects = new ProjectRegistry(stores.projectStore);
+    this.sessions = new SessionRegistry(stores.sessionStore, stores.messageStore);
     this.router = new MessageRouter(this.projects, this.sessions);
     this.backends = {
       mock: new MockBackendAdapter(),
@@ -183,8 +185,9 @@ export class ChattyApp {
     const sessions = await this.sessions.listSessions();
     console.log("\nHidden sessions:");
     for (const session of sessions) {
+      const backendSession = session.backendSession ? ` backendSession=${session.backendSession.sessionId}` : "";
       console.log(
-        `- ${session.projectId} :: ${session.id.slice(0, 8)} [backend=${session.backend}] messages=${session.messageCount} summary="${session.summary}"`,
+        `- ${session.projectId} :: ${session.id.slice(0, 8)} [backend=${session.backend}] messages=${session.messageCount}${backendSession} summary="${session.summary}"`,
       );
     }
 
@@ -237,7 +240,12 @@ export class ChattyApp {
       { role: "assistant", content: response.reply, createdAt: new Date().toISOString() },
     ];
 
-    await this.sessions.appendMessages(routed.session.id, newMessages, response.summary);
+    await this.sessions.recordExchange({
+      sessionId: routed.session.id,
+      messages: newMessages,
+      summary: response.summary,
+      backendSession: response.backendSession,
+    });
     this.lastActiveProjectId = routed.project.id;
 
     console.log(`\n-> ${routed.decision.action.toUpperCase()} ${routed.project.id} (${percent(routed.decision.confidence)})`);
