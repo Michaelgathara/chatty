@@ -45,6 +45,7 @@ Try this flow:
 - `docs/adr/0001-router-owns-session-selection.md` - architectural decision record
 - `packages/core/src/registries` - project and hidden-session persistence
 - `packages/core/src/routing` - message routing logic
+- `packages/core/src/storage` - persistence contracts and JSON store implementations
 - `packages/core/src/types` - shared core types
 - `packages/core/src/utils` - focused core helpers
 - `packages/core/test` - core tests
