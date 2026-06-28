@@ -1,0 +1,19 @@
+{
+  "name": "chatty",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A terminal-first single-chat router for isolated hidden AI sessions.",
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "npm run clean && tsc --project tsconfig.json",
+    "check": "tsc --project tsconfig.json --pretty false",
+    "dev": "tsx packages/tui/src/cli.ts",
+    "start": "node dist/packages/tui/src/cli.js",
+    "test": "npm run build && node --test \"dist/packages/**/*.test.js\""
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.1",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  }
+}
