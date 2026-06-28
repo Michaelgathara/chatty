@@ -1,3 +1,4 @@
+export * from "./backends/contract";
 export * from "./registries/project-registry";
 export * from "./registries/session-registry";
 export * from "./routing/message-router";

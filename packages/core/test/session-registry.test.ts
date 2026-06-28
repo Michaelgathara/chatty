@@ -19,6 +19,9 @@ test("SessionRegistry persists sessions and message history", async () => {
     const created = await sessions.ensureSession("chatty", "mock");
 
     assert.equal(created.created, true);
+    await sessions.bindBackendSession(created.session.id, {
+      sessionId: "mock:chatty-1",
+    });
 
     await sessions.recordExchange({
       sessionId: created.session.id,
@@ -27,9 +30,6 @@ test("SessionRegistry persists sessions and message history", async () => {
         { role: "assistant", content: "world", createdAt: "2026-01-01T00:00:01.000Z" },
       ],
       summary: "A short summary",
-      backendSession: {
-        sessionId: "mock:chatty-1",
-      },
     });
 
     const reloaded = new SessionRegistry(
@@ -47,6 +47,39 @@ test("SessionRegistry persists sessions and message history", async () => {
     assert.equal(session?.messageCount, 2);
     assert.equal(session?.backendSession?.sessionId, "mock:chatty-1");
     assert.ok(session?.backendSession?.boundAt);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("SessionRegistry updates the backend binding when a provider session changes", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "chatty-session-rebind-"));
+  const stateDirectory = path.join(workspace, ".chatty");
+
+  try {
+    const sessions = new SessionRegistry(
+      new JsonSessionStore(stateDirectory),
+      new JsonMessageStore(stateDirectory),
+    );
+    const created = await sessions.ensureSession("chatty", "mock");
+    await sessions.bindBackendSession(created.session.id, {
+      sessionId: "mock:chatty-1",
+    });
+
+    await sessions.recordExchange({
+      sessionId: created.session.id,
+      messages: [
+        { role: "user", content: "rebind", createdAt: "2026-01-01T00:00:02.000Z" },
+      ],
+      summary: "Rebound backend session",
+      backendSession: {
+        sessionId: "mock:chatty-2",
+      },
+    });
+
+    const rebound = (await sessions.listSessions())[0];
+    assert.equal(rebound?.backendSession?.sessionId, "mock:chatty-2");
+    assert.equal(rebound?.messageCount, 1);
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }

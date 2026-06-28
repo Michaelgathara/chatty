@@ -48,6 +48,26 @@ export class SessionRegistry {
     return { session, created: true };
   }
 
+  async bindBackendSession(
+    sessionId: string,
+    binding: BackendSessionBinding,
+  ): Promise<HiddenSessionRecord> {
+    const store = await this.sessions.readAll();
+    const session = store.find((entry) => entry.id === sessionId);
+
+    if (!session) {
+      throw new Error(`Session ${sessionId} does not exist.`);
+    }
+
+    session.backendSession = mergeBackendSession(
+      session.backendSession,
+      binding,
+      new Date().toISOString(),
+    );
+    await this.sessions.writeAll(store);
+    return session;
+  }
+
   async recordExchange(input: {
     sessionId: string;
     messages: ChatMessage[];

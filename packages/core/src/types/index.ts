@@ -82,23 +82,3 @@ export interface ResolvedRoute {
   history: ChatMessage[];
   decision: RouteDecision;
 }
-
-export interface BackendSendInput {
-  project: ProjectDefinition;
-  session: HiddenSessionRecord;
-  history: ChatMessage[];
-  message: string;
-  routeDecision: RouteDecision;
-}
-
-export interface BackendResponse {
-  reply: string;
-  summary: string;
-  backendSession?: BackendSessionBinding;
-}
-
-export interface BackendAdapter {
-  kind: BackendKind;
-  describe(): string;
-  send(input: BackendSendInput): Promise<BackendResponse>;
-}
