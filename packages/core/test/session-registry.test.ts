@@ -5,34 +5,48 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { SessionRegistry } from "../src/registries/session-registry";
+import { JsonMessageStore, JsonSessionStore } from "../src/storage";
 
 test("SessionRegistry persists sessions and message history", async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), "chatty-sessions-"));
+  const stateDirectory = path.join(workspace, ".chatty");
 
   try {
-    const sessions = new SessionRegistry(workspace);
+    const sessions = new SessionRegistry(
+      new JsonSessionStore(stateDirectory),
+      new JsonMessageStore(stateDirectory),
+    );
     const created = await sessions.ensureSession("chatty", "mock");
 
     assert.equal(created.created, true);
 
-    await sessions.appendMessages(
-      created.session.id,
-      [
+    await sessions.recordExchange({
+      sessionId: created.session.id,
+      messages: [
         { role: "user", content: "hello", createdAt: "2026-01-01T00:00:00.000Z" },
         { role: "assistant", content: "world", createdAt: "2026-01-01T00:00:01.000Z" },
       ],
-      "A short summary",
-    );
+      summary: "A short summary",
+      backendSession: {
+        sessionId: "mock:chatty-1",
+      },
+    });
 
-    const reloaded = new SessionRegistry(workspace);
+    const reloaded = new SessionRegistry(
+      new JsonSessionStore(stateDirectory),
+      new JsonMessageStore(stateDirectory),
+    );
     const resumed = await reloaded.ensureSession("chatty", "mock");
     const history = await reloaded.getMessages(created.session.id);
+    const session = (await reloaded.listSessions())[0];
 
     assert.equal(resumed.created, false);
     assert.equal(resumed.session.id, created.session.id);
     assert.equal(history.length, 2);
     assert.equal(history[0]?.content, "hello");
-    assert.equal((await reloaded.listSessions())[0]?.messageCount, 2);
+    assert.equal(session?.messageCount, 2);
+    assert.equal(session?.backendSession?.sessionId, "mock:chatty-1");
+    assert.ok(session?.backendSession?.boundAt);
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }

@@ -5,12 +5,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { ProjectRegistry } from "../src/registries/project-registry";
+import { JsonProjectStore } from "../src/storage";
 
 test("ProjectRegistry normalizes ids on register and lookup", async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), "chatty-projects-"));
 
   try {
-    const registry = new ProjectRegistry(workspace);
+    const registry = new ProjectRegistry(new JsonProjectStore(path.join(workspace, ".chatty")));
     const registered = await registry.register({
       id: "My App",
       name: "My App",

@@ -1,41 +1,35 @@
-import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { ProjectDefinition, ProjectStoreShape } from "../types";
+import { ProjectStore } from "../storage";
+import { ProjectDefinition } from "../types";
 import { normalizeProjectId } from "../utils/project-id";
 
 export class ProjectRegistry {
-  private readonly stateDir: string;
-  private readonly projectsFile: string;
-
-  constructor(private readonly workspaceRoot: string) {
-    this.stateDir = path.join(workspaceRoot, ".chatty");
-    this.projectsFile = path.join(this.stateDir, "projects.json");
-  }
+  constructor(private readonly store: ProjectStore) {}
 
   async list(): Promise<ProjectDefinition[]> {
-    const store = await this.readStore();
-    return [...store.projects].sort((left, right) => left.name.localeCompare(right.name));
+    const projects = await this.store.readAll();
+    return [...projects].map(normalizeProject).sort((left, right) => left.name.localeCompare(right.name));
   }
 
   async get(projectId: string): Promise<ProjectDefinition | undefined> {
-    const store = await this.readStore();
+    const projects = await this.store.readAll();
     const normalizedId = normalizeProjectId(projectId);
-    return store.projects.find((project) => project.id === normalizedId);
+    return projects.map(normalizeProject).find((project) => project.id === normalizedId);
   }
 
   async register(project: ProjectDefinition): Promise<ProjectDefinition> {
-    const store = await this.readStore();
+    const store = await this.store.readAll();
     const normalizedProject = normalizeProject(project);
-    const existingIndex = store.projects.findIndex((entry) => entry.id === normalizedProject.id);
+    const existingIndex = store.findIndex((entry) => normalizeProject(entry).id === normalizedProject.id);
 
     if (existingIndex >= 0) {
-      store.projects[existingIndex] = normalizedProject;
+      store[existingIndex] = normalizedProject;
     } else {
-      store.projects.push(normalizedProject);
+      store.push(normalizedProject);
     }
 
-    await this.writeStore(store);
+    await this.store.writeAll(store);
     return normalizedProject;
   }
 
@@ -49,33 +43,8 @@ export class ProjectRegistry {
   }
 
   async hasProjects(): Promise<boolean> {
-    const store = await this.readStore();
-    return store.projects.length > 0;
-  }
-
-  private async readStore(): Promise<ProjectStoreShape> {
-    await fs.mkdir(this.stateDir, { recursive: true });
-
-    try {
-      const raw = await fs.readFile(this.projectsFile, "utf8");
-      const parsed = JSON.parse(raw) as ProjectStoreShape;
-      return {
-        projects: Array.isArray(parsed.projects) ? parsed.projects.map(normalizeProject) : [],
-      };
-    } catch (error) {
-      if (isMissingFile(error)) {
-        const emptyStore = createEmptyStore();
-        await this.writeStore(emptyStore);
-        return emptyStore;
-      }
-
-      throw error;
-    }
-  }
-
-  private async writeStore(store: ProjectStoreShape): Promise<void> {
-    await fs.mkdir(this.stateDir, { recursive: true });
-    await fs.writeFile(this.projectsFile, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+    const projects = await this.store.readAll();
+    return projects.length > 0;
   }
 }
 
@@ -102,17 +71,4 @@ function normalizeProject(project: ProjectDefinition): ProjectDefinition {
 
 function uniq(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
-}
-
-function isMissingFile(error: unknown): error is NodeJS.ErrnoException {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as NodeJS.ErrnoException).code === "ENOENT"
-  );
-}
-
-function createEmptyStore(): ProjectStoreShape {
-  return { projects: [] };
 }

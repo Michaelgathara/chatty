@@ -1,37 +1,32 @@
 import { randomUUID } from "node:crypto";
-import { promises as fs } from "node:fs";
-import path from "node:path";
 
-import { BackendKind, ChatMessage, HiddenSessionRecord, SessionStoreShape } from "../types";
+import { MessageStore, SessionStore } from "../storage";
+import { BackendKind, BackendSessionBinding, ChatMessage, HiddenSessionRecord } from "../types";
 
 export class SessionRegistry {
-  private readonly stateDir: string;
-  private readonly sessionsFile: string;
-
-  constructor(private readonly workspaceRoot: string) {
-    this.stateDir = path.join(workspaceRoot, ".chatty");
-    this.sessionsFile = path.join(this.stateDir, "sessions.json");
-  }
+  constructor(
+    private readonly sessions: SessionStore,
+    private readonly messages: MessageStore,
+  ) {}
 
   async listSessions(): Promise<HiddenSessionRecord[]> {
-    const store = await this.readStore();
-    return [...store.sessions].sort((left, right) => right.lastUsedAt.localeCompare(left.lastUsedAt));
+    const store = await this.sessions.readAll();
+    return [...store].sort((left, right) => right.lastUsedAt.localeCompare(left.lastUsedAt));
   }
 
   async getMessages(sessionId: string): Promise<ChatMessage[]> {
-    const store = await this.readStore();
-    return store.messages[sessionId] ?? [];
+    return this.messages.getBySessionId(sessionId);
   }
 
   async ensureSession(projectId: string, backend: BackendKind): Promise<{ session: HiddenSessionRecord; created: boolean }> {
-    const store = await this.readStore();
-    const existing = store.sessions.find(
+    const store = await this.sessions.readAll();
+    const existing = store.find(
       (session) => session.projectId === projectId && session.backend === backend,
     );
 
     if (existing) {
       existing.lastUsedAt = new Date().toISOString();
-      await this.writeStore(store);
+      await this.sessions.writeAll(store);
       return { session: existing, created: false };
     }
 
@@ -40,6 +35,7 @@ export class SessionRegistry {
       id: randomUUID(),
       projectId,
       backend,
+      backendSession: undefined,
       title: `${projectId} hidden session`,
       summary: "Fresh hidden session.",
       createdAt: now,
@@ -47,64 +43,53 @@ export class SessionRegistry {
       messageCount: 0,
     };
 
-    store.sessions.push(session);
-    store.messages[session.id] = [];
-    await this.writeStore(store);
+    store.push(session);
+    await this.sessions.writeAll(store);
     return { session, created: true };
   }
 
-  async appendMessages(sessionId: string, messages: ChatMessage[], summary: string): Promise<void> {
-    const store = await this.readStore();
-    const session = store.sessions.find((entry) => entry.id === sessionId);
+  async recordExchange(input: {
+    sessionId: string;
+    messages: ChatMessage[];
+    summary: string;
+    backendSession?: BackendSessionBinding;
+  }): Promise<void> {
+    const store = await this.sessions.readAll();
+    const session = store.find((entry) => entry.id === input.sessionId);
 
     if (!session) {
-      throw new Error(`Session ${sessionId} does not exist.`);
+      throw new Error(`Session ${input.sessionId} does not exist.`);
     }
 
-    const existingMessages = store.messages[sessionId] ?? [];
-    store.messages[sessionId] = [...existingMessages, ...messages];
-    session.summary = summary;
-    session.lastUsedAt = new Date().toISOString();
-    session.messageCount = store.messages[sessionId].length;
-    await this.writeStore(store);
-  }
-
-  private async readStore(): Promise<SessionStoreShape> {
-    await fs.mkdir(this.stateDir, { recursive: true });
-
-    try {
-      const raw = await fs.readFile(this.sessionsFile, "utf8");
-      const parsed = JSON.parse(raw) as SessionStoreShape;
-      return {
-        sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [],
-        messages: parsed.messages ?? {},
-      };
-    } catch (error) {
-      if (isMissingFile(error)) {
-        const emptyStore = createEmptyStore();
-        await this.writeStore(emptyStore);
-        return emptyStore;
-      }
-
-      throw error;
-    }
-  }
-
-  private async writeStore(store: SessionStoreShape): Promise<void> {
-    await fs.mkdir(this.stateDir, { recursive: true });
-    await fs.writeFile(this.sessionsFile, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+    const now = new Date().toISOString();
+    await this.messages.append(input.sessionId, input.messages);
+    session.summary = input.summary;
+    session.lastUsedAt = now;
+    session.messageCount += input.messages.length;
+    session.backendSession = mergeBackendSession(session.backendSession, input.backendSession, now);
+    await this.sessions.writeAll(store);
   }
 }
 
-function isMissingFile(error: unknown): error is NodeJS.ErrnoException {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as NodeJS.ErrnoException).code === "ENOENT"
-  );
-}
+function mergeBackendSession(
+  current: HiddenSessionRecord["backendSession"],
+  next: BackendSessionBinding | undefined,
+  now: string,
+): HiddenSessionRecord["backendSession"] {
+  if (!next) {
+    return current;
+  }
 
-function createEmptyStore(): SessionStoreShape {
-  return { sessions: [], messages: {} };
+  if (current?.sessionId === next.sessionId) {
+    return {
+      ...current,
+      lastUsedAt: now,
+    };
+  }
+
+  return {
+    sessionId: next.sessionId,
+    boundAt: now,
+    lastUsedAt: now,
+  };
 }

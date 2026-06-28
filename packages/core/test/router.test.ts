@@ -7,13 +7,18 @@ import assert from "node:assert/strict";
 import { ProjectRegistry } from "../src/registries/project-registry";
 import { MessageRouter } from "../src/routing/message-router";
 import { SessionRegistry } from "../src/registries/session-registry";
+import { JsonMessageStore, JsonProjectStore, JsonSessionStore } from "../src/storage";
 
 test("MessageRouter creates then resumes a single project's hidden session", async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), "chatty-router-"));
+  const stateDirectory = path.join(workspace, ".chatty");
 
   try {
-    const projects = new ProjectRegistry(workspace);
-    const sessions = new SessionRegistry(workspace);
+    const projects = new ProjectRegistry(new JsonProjectStore(stateDirectory));
+    const sessions = new SessionRegistry(
+      new JsonSessionStore(stateDirectory),
+      new JsonMessageStore(stateDirectory),
+    );
     const router = new MessageRouter(projects, sessions);
 
     await projects.register({

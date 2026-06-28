@@ -8,6 +8,16 @@ export interface ChatMessage {
   createdAt: string;
 }
 
+export interface BackendSessionBinding {
+  sessionId: string;
+}
+
+export interface BackendSessionRef {
+  sessionId: string;
+  boundAt: string;
+  lastUsedAt: string;
+}
+
 export interface ProjectDefinition {
   id: string;
   name: string;
@@ -21,6 +31,7 @@ export interface HiddenSessionRecord {
   id: string;
   projectId: string;
   backend: BackendKind;
+  backendSession?: BackendSessionRef;
   title: string;
   summary: string;
   createdAt: string;
@@ -81,22 +92,13 @@ export interface BackendSendInput {
 }
 
 export interface BackendResponse {
-  sessionId: string;
   reply: string;
   summary: string;
+  backendSession?: BackendSessionBinding;
 }
 
 export interface BackendAdapter {
   kind: BackendKind;
   describe(): string;
   send(input: BackendSendInput): Promise<BackendResponse>;
-}
-
-export interface ProjectStoreShape {
-  projects: ProjectDefinition[];
-}
-
-export interface SessionStoreShape {
-  sessions: HiddenSessionRecord[];
-  messages: Record<string, ChatMessage[]>;
 }
