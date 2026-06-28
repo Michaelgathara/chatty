@@ -33,3 +33,30 @@ test("ProjectRegistry normalizes ids on register and lookup", async () => {
     await rm(workspace, { recursive: true, force: true });
   }
 });
+
+test("ProjectRegistry persists backend changes for a project", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "chatty-project-backends-"));
+
+  try {
+    const store = new JsonProjectStore(path.join(workspace, ".chatty"));
+    const registry = new ProjectRegistry(store);
+
+    await registry.register({
+      id: "chatty",
+      name: "chatty",
+      rootPath: workspace,
+      aliases: ["chatty"],
+      hints: ["router"],
+      defaultBackend: "mock",
+    });
+
+    const updated = await registry.setDefaultBackend("chatty", "pi");
+    assert.equal(updated.defaultBackend, "pi");
+
+    const reloaded = new ProjectRegistry(store);
+    const project = await reloaded.get("chatty");
+    assert.equal(project?.defaultBackend, "pi");
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});

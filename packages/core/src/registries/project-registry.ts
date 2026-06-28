@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { ProjectStore } from "../storage";
-import { ProjectDefinition } from "../types";
+import { BackendKind, ProjectDefinition } from "../types";
 import { normalizeProjectId } from "../utils/project-id";
 
 export class ProjectRegistry {
@@ -45,6 +45,24 @@ export class ProjectRegistry {
   async hasProjects(): Promise<boolean> {
     const projects = await this.store.readAll();
     return projects.length > 0;
+  }
+
+  async setDefaultBackend(projectId: string, backend: BackendKind): Promise<ProjectDefinition> {
+    const store = await this.store.readAll();
+    const normalizedId = normalizeProjectId(projectId);
+    const existingIndex = store.findIndex((entry) => normalizeProject(entry).id === normalizedId);
+
+    if (existingIndex < 0) {
+      throw new Error(`Project ${projectId} does not exist.`);
+    }
+
+    const updated = normalizeProject({
+      ...store[existingIndex],
+      defaultBackend: backend,
+    });
+    store[existingIndex] = updated;
+    await this.store.writeAll(store);
+    return updated;
   }
 }
 

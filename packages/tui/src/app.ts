@@ -19,6 +19,7 @@ import { MockBackendAdapter } from "../../backends/mock/src";
 import { OpenCodeBackendAdapter } from "../../backends/opencode/src";
 import { createPiBackendAdapter } from "../../backends/pi/src";
 import { tokenizeCommand } from "./commands/command-parser";
+import { parseProjectAddArgs, parseProjectBackendArgs } from "./commands/project-command";
 
 export class ChattyApp {
   private readonly projects: ProjectRegistry;
@@ -75,13 +76,14 @@ export class ChattyApp {
   }
 
   private async bootstrap(): Promise<void> {
-    await this.projects.ensureSeedProject(buildSeedProject(this.workspaceRoot));
+    const seedProject = await this.projects.ensureSeedProject(buildSeedProject(this.workspaceRoot));
+    this.lastActiveProjectId ??= seedProject.id;
   }
 
   private printBanner(): void {
     console.log("chatty");
     console.log("One visible chat, isolated hidden sessions behind the scenes.");
-    console.log("Commands: /help, /projects, /project add <id> <path> [aliases...], /use <id|auto>, /sessions, /exit");
+    console.log("Commands: /help, /projects, /project add <id> <path> [--backend <kind>] [aliases...], /project backend <id> <kind>, /use <id|auto>, /sessions, /exit");
   }
 
   private async handleCommand(
@@ -118,35 +120,61 @@ export class ChattyApp {
 
   private async handleProjectCommand(args: string[]): Promise<void> {
     const [subcommand, ...rest] = args;
-    if (subcommand !== "add") {
-      console.log("Usage: /project add <id> <path> [aliases...]");
+    switch (subcommand) {
+      case "add":
+        await this.handleProjectAddCommand(rest);
+        return;
+      case "backend":
+        await this.handleProjectBackendCommand(rest);
+        return;
+      default:
+        console.log("Usage: /project add <id> <path> [--backend <kind>] [aliases...]");
+        console.log("       /project backend <projectId> <mock|pi|opencode>");
+        return;
+    }
+  }
+
+  private async handleProjectAddCommand(args: string[]): Promise<void> {
+    const parsed = parseProjectAddArgs(args);
+    if ("error" in parsed) {
+      console.log(parsed.error);
       return;
     }
 
-    if (rest.length < 2) {
-      console.log("Usage: /project add <id> <path> [aliases...]");
-      return;
-    }
-
-    const [projectId, rawPath, ...aliases] = rest;
-    const rootPath = path.resolve(rawPath);
+    const rootPath = path.resolve(parsed.rawPath);
     const project: ProjectDefinition = {
-      id: projectId,
-      name: projectId,
+      id: parsed.projectId,
+      name: parsed.projectId,
       rootPath,
-      aliases: [projectId, path.basename(rootPath), ...aliases],
-      hints: [projectId, rootPath, path.basename(rootPath)],
-      defaultBackend: "mock",
+      aliases: [parsed.projectId, path.basename(rootPath), ...parsed.aliases],
+      hints: [parsed.projectId, rootPath, path.basename(rootPath)],
+      defaultBackend: parsed.backend,
     };
 
     const registered = await this.projects.register(project);
-    const normalizedInput = normalizeProjectId(projectId);
-    if (normalizedInput !== projectId) {
-      console.log(`Registered project ${registered.id} (normalized from "${projectId}") -> ${rootPath}`);
+    const normalizedInput = normalizeProjectId(parsed.projectId);
+    if (normalizedInput !== parsed.projectId) {
+      console.log(`Registered project ${registered.id} (normalized from "${parsed.projectId}") -> ${rootPath} [backend=${registered.defaultBackend}]`);
       return;
     }
 
-    console.log(`Registered project ${registered.id} -> ${rootPath}`);
+    console.log(`Registered project ${registered.id} -> ${rootPath} [backend=${registered.defaultBackend}]`);
+  }
+
+  private async handleProjectBackendCommand(args: string[]): Promise<void> {
+    const parsed = parseProjectBackendArgs(args);
+    if ("error" in parsed) {
+      console.log(parsed.error);
+      return;
+    }
+
+    try {
+      const updated = await this.projects.setDefaultBackend(parsed.projectId, parsed.backend);
+      console.log(`Set project ${updated.id} backend to ${updated.defaultBackend}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.log(message);
+    }
   }
 
   private async handleUseCommand(args: string[]): Promise<void> {
@@ -226,20 +254,28 @@ export class ChattyApp {
     }
 
     const backend = this.backends[routed.project.defaultBackend];
-    const ensured = await backend.ensureSession({
-      project: routed.project,
-      session: routed.session,
-      history: routed.history,
-    });
-    const boundSession = await this.sessions.bindBackendSession(routed.session.id, ensured.binding);
-    const response = await backend.sendMessage({
-      project: routed.project,
-      session: boundSession,
-      backendSession: boundSession.backendSession!,
-      history: routed.history,
-      message,
-      routeDecision: routed.decision,
-    });
+    let response;
+    try {
+      const ensured = await backend.ensureSession({
+        project: routed.project,
+        session: routed.session,
+        history: routed.history,
+      });
+      const boundSession = await this.sessions.bindBackendSession(routed.session.id, ensured.binding);
+      response = await backend.sendMessage({
+        project: routed.project,
+        session: boundSession,
+        backendSession: boundSession.backendSession!,
+        history: routed.history,
+        message,
+        routeDecision: routed.decision,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.log(`\n-> ${routed.project.id} [${routed.project.defaultBackend}]`);
+      console.log(message);
+      return;
+    }
 
     const now = new Date().toISOString();
     const newMessages: ChatMessage[] = [
@@ -289,8 +325,10 @@ export class ChattyApp {
     console.log("  Show the available commands.");
     console.log("/projects");
     console.log("  List registered projects and routing aliases.");
-    console.log("/project add <id> <path> [aliases...]");
+    console.log("/project add <id> <path> [--backend <kind>] [aliases...]");
     console.log('  Register another project for auto-routing. Quote paths or ids that contain spaces.');
+    console.log("/project backend <projectId> <mock|pi|opencode>");
+    console.log("  Change which backend a project uses.");
     console.log("/use <projectId|auto>");
     console.log("  Pin routing to a project or hand control back to the router.");
     console.log("/sessions");
